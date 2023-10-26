@@ -9,9 +9,10 @@ from multiprocessing import Process
 from streaming.utils import create_producer, create_consumer
 from settings import TRANSACTIONS_TOPIC, TRANSACTIONS_CONSUMER_GROUP, ANOMALIES_TOPIC, NUM_PARTITIONS
 
-model_path = os.path.abspath('../model/isolation_forest.joblib')
+model_path = os.path.abspath('./model/isolation_forest.joblib')
 
 def detect():
+    print("Starting detector...")
     consumer = create_consumer(topic=TRANSACTIONS_TOPIC, group_id=TRANSACTIONS_CONSUMER_GROUP)
     producer = create_producer()
 
@@ -37,10 +38,10 @@ def detect():
 
         # If an anomaly comes in, send it to anomalies topic
         if prediction[0] == -1:
+            print("Anomaly detected!")
+            
             score = clf.score_samples(data)
             record["score"] = np.round(score, 3).tolist()
-
-            _id = str(record["id"])
             record = json.dumps(record).encode("utf-8")
 
             producer.produce(topic=ANOMALIES_TOPIC,
@@ -51,8 +52,8 @@ def detect():
 
     consumer.close()
 
-
-# One consumer per partition
-for _ in range(NUM_PARTITIONS):
-    p = Process(target=detect)
-    p.start()
+if __name__ == '__main__':
+    # One consumer per partition
+    for _ in range(NUM_PARTITIONS):
+        p = Process(target=detect)
+        p.start()
