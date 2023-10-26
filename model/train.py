@@ -7,7 +7,7 @@ from joblib import dump
 
 spark: SparkSession = SparkSession.builder.getOrCreate()
 
-df = spark.read.csv('../data/KDDTrain.csv', header=False, inferSchema=True)
+df = spark.read.csv('./data/KDDTrain.csv', header=False, inferSchema=True)
 
 df = df.toDF(*["duration", "protocol_type", "service", "flag", "src_bytes", "dst_bytes",
                    "land", "wrong_fragment", "urgent", "hot", "num_failed_logins",
@@ -65,7 +65,7 @@ rf_binary = RandomForestClassifier(featuresCol="features", labelCol="label")
 model_binary = rf_binary.fit(training_data_binary)
 
 # Save model
-model_binary.write().overwrite().save("./model_binary")
+model_binary.write().overwrite().save("./model/model_binary")
 
 # Predictions
 predictions_binary = model_binary.transform(test_data_binary)
