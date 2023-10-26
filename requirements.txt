@@ -1,0 +1,4 @@
+scikit-learn
+confluent-kafka
+slackclient
+python-dotenv
