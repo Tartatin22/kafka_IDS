@@ -1,77 +1,51 @@
-from pyspark.sql import SparkSession
-from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
-from pyspark.ml.classification import RandomForestClassifier
-from pyspark.ml import Pipeline
-from pyspark.ml.evaluation import BinaryClassificationEvaluator
+import random
 from joblib import dump
 
-spark: SparkSession = SparkSession.builder.getOrCreate()
+import numpy as np
+from sklearn.ensemble import IsolationForest
+from sklearn.datasets import fetch_kddcup99
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import OrdinalEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import make_pipeline
 
-df = spark.read.csv('./data/KDDTrain.csv', header=False, inferSchema=True)
-
-df = df.toDF(*["duration", "protocol_type", "service", "flag", "src_bytes", "dst_bytes",
-                   "land", "wrong_fragment", "urgent", "hot", "num_failed_logins",
-                   "logged_in", "num_compromised", "root_shell", "su_attempted", "num_root",
-                   "num_file_creations", "num_shells", "num_access_files", "num_outbound_cmds",
-                   "is_host_login", "is_guest_login", "count", "srv_count", "serror_rate",
-                   "srv_serror_rate", "rerror_rate", "srv_rerror_rate", "same_srv_rate",
-                   "diff_srv_rate", "srv_diff_host_rate", "dst_host_count", "dst_host_srv_count",
-                   "dst_host_same_srv_rate", "dst_host_diff_srv_rate", "dst_host_same_src_port_rate",
-                   "dst_host_srv_diff_host_rate", "dst_host_serror_rate", "dst_host_srv_serror_rate",
-                   "dst_host_rerror_rate", "dst_host_srv_rerror_rate", "labels", "label"])
-
-# Sélectionner les colonnes nécessaires pour l'entraînement du modèle
-selected_columns = ["src_bytes", "dst_bytes", "land", "wrong_fragment", "urgent", "hot", "num_failed_logins",
-                    "logged_in", "num_compromised", "root_shell", "su_attempted", "num_root",
-                    "num_file_creations", "num_shells", "num_access_files", "num_outbound_cmds",
-                    "is_host_login", "is_guest_login", "count", "srv_count", "serror_rate",
-                    "srv_serror_rate", "rerror_rate", "srv_rerror_rate", "same_srv_rate",
-                    "diff_srv_rate", "srv_diff_host_rate", "dst_host_count", "dst_host_srv_count",
-                    "dst_host_same_srv_rate", "dst_host_diff_srv_rate", "dst_host_same_src_port_rate",
-                    "dst_host_srv_diff_host_rate", "dst_host_serror_rate", "dst_host_srv_serror_rate",
-                    "dst_host_rerror_rate", "dst_host_srv_rerror_rate", "protocol_type_encoded",
-                    "service_encoded", "flag_encoded"]
-
-stages = []
-
-# Transformer les colonnes catégorielles en numérique
-indexer = StringIndexer(
-    inputCols=["protocol_type", "service", "flag"], 
-    outputCols=["protocol_type_indexed", "service_indexed", "flag_indexed"]
+# Generate train data
+X, y = fetch_kddcup99(
+    subset="SA", percent10=True, random_state=42, return_X_y=True, as_frame=True
 )
+y = (y != b"normal.").astype(np.int32)
+X, X_test, y, y_test = train_test_split(X, y, train_size=0.1, stratify=y, random_state=42)
 
-# Transformer les colonnes numériques en vecteurs binaires
-encoder = OneHotEncoder(
-    inputCols=["protocol_type_indexed", "service_indexed", "flag_indexed"], 
-    outputCols=["protocol_type_encoded", "service_encoded", "flag_encoded"]
-)
+# transform categorical columns into features
+cat_columns = ["protocol_type", "service", "flag"]
+ordinal_encoder = OrdinalEncoder(
+        handle_unknown="use_encoded_value", unknown_value=-1
+        )
+preprocessor = ColumnTransformer(
+        transformers=[
+            ("categorical", ordinal_encoder, cat_columns),
+            ],
+        remainder="passthrough",
+        )
+clf = IsolationForest()
+pipeline = make_pipeline(preprocessor, clf)
 
-# Transformer les colonnes en vecteurs
-assembler = VectorAssembler(inputCols=selected_columns, outputCol="features")
-stages += [indexer, encoder, assembler]
+# train the model
+pipeline.fit(X)
 
-# Transformer le labels en binaire (1 pour les attaques, 0 pour les non-attaques "normal" )
-df_binary = df.withColumn("label", (df.labels != "normal").cast("integer"))
+y_pred = pipeline.predict(X_test)
 
-# Fit pipeline
-pipeline = Pipeline(stages=stages)
-df_binary = pipeline.fit(df_binary).transform(df_binary)
+print(type(y_pred))
+print(type(X_test))
+X_test['pred']=y_pred
+X_test['label']=y_test
+print(X_test)
+with open('X_test','w') as f:
+    f.write(str(X_test))
+    f.close()
 
-# Split dataset
-(training_data_binary, test_data_binary) = df_binary.randomSplit([0.7, 0.3])
+anomaly_percentage = (y_pred[y_pred == -1].shape[0] / len(y_pred)) * 100
+print(f"Percentage of anomalies: {anomaly_percentage:.2f}%")
 
-# Model Implementation
-rf_binary = RandomForestClassifier(featuresCol="features", labelCol="label")
-model_binary = rf_binary.fit(training_data_binary)
+dump(pipeline, './isolation_forest.joblib')
 
-# Save model
-model_binary.write().overwrite().save("./model/model_binary")
-
-# Predictions
-predictions_binary = model_binary.transform(test_data_binary)
-
-# Calculer les métriques de classification
-binary_evaluator = BinaryClassificationEvaluator(labelCol="label")
-binary_accuracy = binary_evaluator.evaluate(predictions_binary, {binary_evaluator.metricName: "areaUnderROC"})
-
-print("Binary Accuracy: {:.2%}".format(binary_accuracy))
