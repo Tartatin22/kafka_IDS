@@ -35,17 +35,5 @@ pipeline.fit(X)
 
 y_pred = pipeline.predict(X_test)
 
-print(type(y_pred))
-print(type(X_test))
-X_test['pred']=y_pred
-X_test['label']=y_test
-print(X_test)
-with open('X_test','w') as f:
-    f.write(str(X_test))
-    f.close()
-
-anomaly_percentage = (y_pred[y_pred == -1].shape[0] / len(y_pred)) * 100
-print(f"Percentage of anomalies: {anomaly_percentage:.2f}%")
-
-dump(pipeline, './isolation_forest.joblib')
+dump(pipeline, './model/isolation_forest.joblib')
 
