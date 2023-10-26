@@ -1,19 +1,21 @@
 import json
 import os
-from joblib import load
 import logging
-from multiprocessing import Process
-from pyspark.ml import PipelineModel
-from pyspark.ml.classification import RandomForestClassifier
-from streaming.utils import create_producer, create_consumer
 import numpy as np
+import pandas as pd
+
+from joblib import load
+from multiprocessing import Process
+from streaming.utils import create_producer, create_consumer
 from settings import TRANSACTIONS_TOPIC, TRANSACTIONS_CONSUMER_GROUP, ANOMALIES_TOPIC, NUM_PARTITIONS
 
-model = RandomForestClassifier.load("./model_binary")
+model_path = os.path.abspath('../model/isolation_forest.joblib')
 
 def detect():
     consumer = create_consumer(topic=TRANSACTIONS_TOPIC, group_id=TRANSACTIONS_CONSUMER_GROUP)
     producer = create_producer()
+
+    clf = load(model_path)
 
     while True:
         message = consumer.poll(timeout=50)
@@ -25,12 +27,13 @@ def detect():
 
         # Message that came from producer
         record = json.loads(message.value().decode('utf-8'))
-        data = record["data"]
+        record.pop('id')
+        record.pop('current_time')
+        record.pop('label')
+        record.pop('labels')
 
-        print(data)
-        prediction = model.transform(data)
-
-        print(prediction)
+        data = pd.DataFrame([record])
+        prediction = clf.predict(data)
 
         # If an anomaly comes in, send it to anomalies topic
         if prediction[0] == -1:
